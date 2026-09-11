@@ -26,6 +26,7 @@ import type {
   DeepTariffBalanceSnapshot,
   DeepTariffSpendProjection,
 } from './types.ts'
+import type { HostContext } from './host-context.ts'
 
 export {
   canonicalizeTimeZone,
@@ -134,6 +135,7 @@ export class DeepTariff extends Service {
   private readonly table: TariffTable
   private readonly apiKeyEnv: string
   private readonly balanceUrl: string
+  private readonly ownerCtx: Context
   private readonly liveSpend = new Map<string, DeepTariffSpendProjection>()
   private balance: DeepTariffBalanceSnapshot = {
     ok: false,
@@ -145,8 +147,9 @@ export class DeepTariff extends Service {
    * @param ctx - owning root context.
    * @param config - optional overrides of the official table.
    */
-  constructor(ctx: Context, config: Config = {}) {
+  constructor(ctx: HostContext, config: Config = {}) {
     super(ctx, 'deepTariff')
+    this.ownerCtx = ctx
     this.table = validateTariffTable({
       provider: config.provider ?? DEFAULT_TARIFF_TABLE.provider,
       peakWindows: config.peakWindows ?? DEFAULT_TARIFF_TABLE.peakWindows,
@@ -157,7 +160,7 @@ export class DeepTariff extends Service {
     this.balanceUrl = config.balanceUrl ?? DEFAULT_BALANCE_URL
     const balanceRefreshMs = config.balanceRefreshMs ?? 60_000
 
-    ctx.inject(['sessionProjections'], (scope: Context) => {
+    ctx.inject(['sessionProjections'], (scope) => {
       const registry = (scope as Context & {
         sessionProjections: { register: (definition: unknown) => () => void }
       }).sessionProjections
@@ -187,7 +190,7 @@ export class DeepTariff extends Service {
       })()
     }) as never)
 
-    ctx.inject(['webServer'], (scope: Context) => {
+    ctx.inject(['webServer'], (scope) => {
       const webServer = (scope as Context & {
         webServer: { register: (route: HostHttpRoute) => () => void }
       }).webServer
@@ -195,7 +198,13 @@ export class DeepTariff extends Service {
         () => webServer.register({
           kind: 'exact',
           path: '/deep-tariff/snapshot',
-          handler: async (_req, res) => {
+          handler: async (
+            _req: { url?: string },
+            res: {
+              writeHead: (status: number, headers: Record<string, string>) => void
+              end: (body: string) => void
+            },
+          ) => {
             const body: DeepTariffHostSnapshot = {
               balance: this.balance,
               spend: Object.fromEntries(this.liveSpend),
@@ -261,7 +270,7 @@ export class DeepTariff extends Service {
   }
 
   private async refreshBalance(): Promise<void> {
-    const apiKey = await resolveApiKey(this.ctx, this.apiKeyEnv)
+    const apiKey = await resolveApiKey(this.ownerCtx, this.apiKeyEnv)
     if (apiKey === undefined) {
       this.balance = { ok: false, error: `${this.apiKeyEnv} not configured`, fetchedAt: Date.now() }
       return

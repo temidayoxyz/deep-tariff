@@ -10,6 +10,7 @@ import { TariffDock } from './TariffDock.tsx'
 import { bindSpendProjection } from './projections.ts'
 import { createHostSnapshotStore } from './snapshot.ts'
 import type { TariffBalanceStore, TariffDockInjected, TariffSpendStore } from './slots.ts'
+import type { SlotsHost } from './slot-host.ts'
 import { en, NS, zh, type DeepTariffKey } from './locales.ts'
 
 export type { TariffDockInjected, TariffDirectoryState } from './slots.ts'
@@ -36,6 +37,7 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => () => host.dispose(), 'deep-tariff: snapshot poller')
 
   ctx.inject(['slots', 'modelDirectories'], (scope: ClientContext) => {
+    const slots = (scope as ClientContext & SlotsHost).slots
     const models = scope.modelDirectories
     const sessions = (scope as ClientContext & { sessions?: unknown }).sessions
       ?? (scope as ClientContext & { get: (name: string) => unknown }).get('sessions')
@@ -43,7 +45,7 @@ export function apply(ctx: ClientContext): void {
       subscribe: host.subscribe,
       getSnapshot: () => host.balance(),
     }
-    scope.slots.inject('conversation.composer.dock', () => scope.slots.register({
+    slots.inject('conversation.composer.dock', () => slots.register({
       name: 'conversation.composer.dock',
       id: 'deep-tariff',
       order: 10,

@@ -9,7 +9,7 @@ import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { detectTimeZone, formatHm, resolveTariff, type TariffSnapshot } from '../schedule.ts'
 import { hasSpend } from '../spend.ts'
 import type { DeepTariffBalanceSnapshot, DeepTariffSpendProjection } from '../types.ts'
-import type { TariffDockInjected } from './slots.ts'
+import type { TariffBalanceStore, TariffDockInjected, TariffSpendStore } from './slots.ts'
 import {
   formatMoney,
   formatUsd,
@@ -44,7 +44,7 @@ const imminentStyle: CSSProperties = {
   color: 'var(--dsw-alias-warning, #c97800)',
 }
 
-const emptyStore = {
+const emptyStore: TariffSpendStore & TariffBalanceStore = {
   subscribe: (): (() => void) => () => {},
   getSnapshot: (): null => null,
 }
