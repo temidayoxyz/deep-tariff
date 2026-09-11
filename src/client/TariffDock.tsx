@@ -7,13 +7,18 @@ import { useEffect, useState, useSyncExternalStore, type CSSProperties } from 'r
 import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { detectTimeZone, formatHm, resolveTariff, type TariffSnapshot } from '../schedule.ts'
+import { hasSpend } from '../spend.ts'
+import type { DeepTariffBalanceSnapshot, DeepTariffSpendProjection } from '../types.ts'
 import type { TariffDockInjected } from './slots.ts'
 import {
+  formatMoney,
   formatUsd,
+  isPeakImminent,
   modelLabelKey,
   nextKey,
   remainingKey,
   remainingOf,
+  weekdayKey,
   windowKey,
 } from './format.ts'
 
@@ -35,13 +40,26 @@ const rootStyle: CSSProperties = {
   textOverflow: 'ellipsis',
 }
 
+const imminentStyle: CSSProperties = {
+  color: 'var(--dsw-alias-warning, #c97800)',
+}
+
+const emptyStore = {
+  subscribe: (): (() => void) => () => {},
+  getSnapshot: (): null => null,
+}
+
 /**
  * Composer-dock tariff chip.
- * @param props - directory store, load verb, and the locale seat.
+ * @param props - directory, optional spend/balance stores, load verb, locale seat.
  * @returns the strip, or null when the selected route is not DeepSeek.
  */
-export function TariffDock({ directory, load, t }: TariffDockProps) {
+export function TariffDock({ directory, load, spend, balance, t }: TariffDockProps) {
   const state = useSyncExternalStore(directory.subscribe, directory.getSnapshot, directory.getSnapshot)
+  const spendStore = spend ?? emptyStore
+  const balanceStore = balance ?? emptyStore
+  const spendSnap = useSyncExternalStore(spendStore.subscribe, spendStore.getSnapshot, spendStore.getSnapshot)
+  const balanceSnap = useSyncExternalStore(balanceStore.subscribe, balanceStore.getSnapshot, balanceStore.getSnapshot)
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
@@ -74,8 +92,10 @@ export function TariffDock({ directory, load, t }: TariffDockProps) {
     })
 
   if (snapshot === null) return null
-  const line = formatLine(snapshot, new Date(now), t)
-  const tip = formatTooltip(snapshot, t)
+  const instant = new Date(now)
+  const imminent = isPeakImminent(snapshot, instant)
+  const line = formatLine(snapshot, instant, t, spendSnap, balanceSnap, imminent)
+  const tip = formatTooltip(snapshot, t, spendSnap, balanceSnap, imminent)
 
   return (
     <Tooltip label={tip} side="top" delayMs={500}>
@@ -84,9 +104,12 @@ export function TariffDock({ directory, load, t }: TariffDockProps) {
         data-deep-tariff
         data-window={snapshot.window}
         data-model={snapshot.model}
+        data-peak-imminent={imminent ? 'true' : undefined}
         aria-label={t('strip.aria', { summary: line })}
       >
-        {line}
+        {imminent
+          ? <span style={imminentStyle}>{line}</span>
+          : line}
       </div>
     </Tooltip>
   )
@@ -94,15 +117,14 @@ export function TariffDock({ directory, load, t }: TariffDockProps) {
 
 /**
  * Compose the visible one-line readout.
- * @param snapshot - Resolved tariff.
- * @param now - Instant used for the countdown.
- * @param t - Locale seat.
- * @returns Window, countdown, model, and cache-miss / output rates.
  */
 export function formatLine(
   snapshot: TariffSnapshot,
   now: Date,
   t: TariffDockProps['t'],
+  spend: DeepTariffSpendProjection | null = null,
+  balance: DeepTariffBalanceSnapshot | null = null,
+  imminent = false,
 ): string {
   const parts = remainingOf(snapshot, now)
   const remaining = t(remainingKey(parts), {
@@ -117,16 +139,31 @@ export function formatLine(
     input: formatUsd(snapshot.rates.cacheMiss),
     output: formatUsd(snapshot.rates.output),
   })
-  return `${t(windowKey(snapshot.window))} · ${remaining} · ${model} ${rates}`
+  const segments = [
+    t(windowKey(snapshot.window)),
+    remaining,
+    ...(imminent ? [t('cue.peakSoon')] : []),
+    `${model} ${rates}`,
+  ]
+  if (hasSpend(spend)) {
+    segments.push(t('spend', { amount: formatMoney(spend.usd, 'USD') }))
+  }
+  if (balance !== null && balance.ok) {
+    segments.push(t('balance', { amount: formatMoney(balance.total, balance.currency) }))
+  }
+  return segments.join(' · ')
 }
 
 /**
- * Compose the hover details: local peak hours, all three rates, next flip.
- * @param snapshot - Resolved tariff.
- * @param t - Locale seat.
- * @returns Multiline tooltip text.
+ * Compose the hover details.
  */
-export function formatTooltip(snapshot: TariffSnapshot, t: TariffDockProps['t']): string {
+export function formatTooltip(
+  snapshot: TariffSnapshot,
+  t: TariffDockProps['t'],
+  spend: DeepTariffSpendProjection | null = null,
+  balance: DeepTariffBalanceSnapshot | null = null,
+  imminent = false,
+): string {
   const windows = snapshot.localPeakWindows
     .map(window => `${window.start}–${window.end}`)
     .join(t('windows.sep'))
@@ -138,7 +175,26 @@ export function formatTooltip(snapshot: TariffSnapshot, t: TariffDockProps['t'])
   })
   const next = t('tooltip.next', {
     next: t(nextKey(snapshot.nextWindow)),
-    time: formatHm(snapshot.nextTransitionAt, snapshot.timeZone),
+    time: `${t(weekdayKey(snapshot.nextTransitionAt, snapshot.timeZone))} ${formatHm(snapshot.nextTransitionAt, snapshot.timeZone)}`,
   })
-  return `${hours}\n${rates}\n${next}`
+  const lines = [hours, rates, next]
+  if (imminent) lines.push(t('cue.peakSoon'))
+  if (hasSpend(spend)) {
+    lines.push(t('tooltip.spend', {
+      amount: formatMoney(spend.usd, 'USD'),
+      uncached: String(spend.uncachedInputTokens),
+      cached: String(spend.cacheReadTokens),
+      output: String(spend.outputTokens),
+    }))
+  }
+  if (balance !== null && balance.ok) {
+    lines.push(t('tooltip.balance', {
+      total: formatMoney(balance.total, balance.currency),
+      currency: balance.currency,
+      granted: formatMoney(balance.granted, balance.currency),
+      toppedUp: formatMoney(balance.toppedUp, balance.currency),
+    }))
+    if (!balance.isAvailable) lines.push(t('tooltip.balance.unavailable'))
+  }
+  return lines.join('\n')
 }

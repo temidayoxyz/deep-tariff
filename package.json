@@ -1,7 +1,7 @@
 {
   "name": "deep-tariff",
-  "version": "1.0.0",
-  "description": "Free DeepSeek official-API peak/off-peak plugin for DeepSeek Harness: UTC schedule, local-time countdown, Flash/Pro USD rates",
+  "version": "1.2.0",
+  "description": "Free DeepSeek official-API peak/off-peak plugin for DeepSeek Harness: UTC schedule, session spend, account remaining, Flash/Pro USD rates",
   "license": "MIT",
   "type": "module",
   "repository": {

@@ -35,10 +35,16 @@ export type {
 /** Provider route owned by `@deepseek-ai/dsh-llm-deepseek`. */
 export const DEEPSEEK_OFFICIAL_PROVIDER = 'deepseek-official'
 
-/** Official V4 Flash model id. */
+/** Canonical Flash model id (`DeepSeek-V4.1-Flash`). */
+export const DEEPSEEK_FLASH = 'deepseek-flash'
+
+/** Retired V4 Flash id. Still accepted by the API; billed as Flash. */
 export const DEEPSEEK_V4_FLASH = 'deepseek-v4-flash'
 
-/** Official V4 Pro model id. */
+/** Retired V4 Flash vision-exp id. Still accepted by the API; billed as Flash. */
+export const DEEPSEEK_V4_FLASH_VISION_EXP = 'deepseek-v4-flash-vision-exp'
+
+/** Official V4 Pro model id (`DeepSeek-V4-Pro-0813`). Billing unchanged after the V4.1 Flash launch. */
 export const DEEPSEEK_V4_PRO = 'deepseek-v4-pro'
 
 /** Official UTC peak windows (01:00–04:00 and 06:00–10:00 UTC). */
@@ -47,12 +53,23 @@ export const DEFAULT_PEAK_WINDOWS: readonly ClockWindow[] = [
   { start: '06:00', end: '10:00' },
 ]
 
-/** Official USD rates per 1M tokens, as published 2026-08-16. */
+/**
+ * UTC weekdays when {@link DEFAULT_PEAK_WINDOWS} apply.
+ * `Date.getUTCDay()` numbering: 0=Sun … 6=Sat. Weekends are off-peak.
+ */
+export const DEFAULT_PEAK_WEEKDAYS: readonly number[] = [1, 2, 3, 4, 5]
+
+/** Official Flash USD rates per 1M tokens (V4.1 Flash, effective 2026-09-10 04:00 UTC). */
+const FLASH_RATES: ModelRates = {
+  offPeak: { cacheHit: 0.003, cacheMiss: 0.15, output: 0.6 },
+  peak: { cacheHit: 0.006, cacheMiss: 0.3, output: 1.2 },
+}
+
+/** Official USD rates per 1M tokens, as published 2026-09-10. */
 export const DEFAULT_MODEL_RATES: Readonly<Record<string, ModelRates>> = {
-  [DEEPSEEK_V4_FLASH]: {
-    offPeak: { cacheHit: 0.007, cacheMiss: 0.22, output: 0.66 },
-    peak: { cacheHit: 0.014, cacheMiss: 0.44, output: 1.32 },
-  },
+  [DEEPSEEK_FLASH]: FLASH_RATES,
+  [DEEPSEEK_V4_FLASH]: FLASH_RATES,
+  [DEEPSEEK_V4_FLASH_VISION_EXP]: FLASH_RATES,
   [DEEPSEEK_V4_PRO]: {
     offPeak: { cacheHit: 0.022, cacheMiss: 0.66, output: 1.98 },
     peak: { cacheHit: 0.044, cacheMiss: 1.32, output: 3.96 },
@@ -63,6 +80,7 @@ export const DEFAULT_MODEL_RATES: Readonly<Record<string, ModelRates>> = {
 export const DEFAULT_TARIFF_TABLE: TariffTable = {
   provider: DEEPSEEK_OFFICIAL_PROVIDER,
   peakWindows: DEFAULT_PEAK_WINDOWS,
+  peakWeekdays: DEFAULT_PEAK_WEEKDAYS,
   models: DEFAULT_MODEL_RATES,
 }
 
@@ -151,6 +169,7 @@ export function validateTariffTable(table: TariffTable): TariffTable {
   }
   const windows = resolveMinuteWindows(table.peakWindows)
   if (windows.length === 0) throw new TypeError('deep-tariff: at least one peak window is required')
+  resolvePeakWeekdays(table.peakWeekdays)
   const models = Object.keys(table.models)
   if (models.length === 0) throw new TypeError('deep-tariff: at least one model rate card is required')
   for (const model of models) {
@@ -177,9 +196,10 @@ export function resolveTariff(
   const timeZone = canonicalizeTimeZone(request.timeZone)
   const now = request.now ?? new Date()
   const windows = resolveMinuteWindows(table.peakWindows)
-  const window: TariffWindow = inPeak(now, windows) ? 'peak' : 'off-peak'
-  const nextTransitionAt = nextTransition(now, windows)
-  const nextWindow: TariffWindow = inPeak(nextTransitionAt, windows) ? 'peak' : 'off-peak'
+  const peakWeekdays = resolvePeakWeekdays(table.peakWeekdays)
+  const window: TariffWindow = inPeak(now, windows, peakWeekdays) ? 'peak' : 'off-peak'
+  const nextTransitionAt = nextTransition(now, windows, peakWeekdays)
+  const nextWindow: TariffWindow = inPeak(nextTransitionAt, windows, peakWeekdays) ? 'peak' : 'off-peak'
   return {
     model: request.model,
     timeZone,
@@ -242,22 +262,46 @@ function resolveMinuteWindows(windows: readonly ClockWindow[]): MinuteWindow[] {
   return resolved
 }
 
-function inPeak(now: Date, windows: readonly MinuteWindow[]): boolean {
+function resolvePeakWeekdays(days: readonly number[]): ReadonlySet<number> {
+  if (days.length === 0) {
+    throw new TypeError('deep-tariff: at least one peak weekday is required')
+  }
+  const resolved = new Set<number>()
+  for (const day of days) {
+    if (!Number.isInteger(day) || day < 0 || day > 6) {
+      throw new TypeError(`deep-tariff: peak weekday must be an integer 0–6 (Sun–Sat): ${JSON.stringify(day)}`)
+    }
+    resolved.add(day)
+  }
+  return resolved
+}
+
+function inPeak(now: Date, windows: readonly MinuteWindow[], peakWeekdays: ReadonlySet<number>): boolean {
+  if (!peakWeekdays.has(now.getUTCDay())) return false
   const minute = now.getUTCHours() * 60 + now.getUTCMinutes()
   return windows.some(window => minute >= window.startMinutes && minute < window.endMinutes)
 }
 
-function nextTransition(now: Date, windows: readonly MinuteWindow[]): Date {
+function nextTransition(
+  now: Date,
+  windows: readonly MinuteWindow[],
+  peakWeekdays: ReadonlySet<number>,
+): Date {
+  const current = inPeak(now, windows, peakWeekdays)
   const boundaries = [...new Set(windows.flatMap(window => [window.startMinutes, window.endMinutes]))]
     .sort((left, right) => left - right)
   const year = now.getUTCFullYear()
   const month = now.getUTCMonth()
   const day = now.getUTCDate()
-  for (const minutes of boundaries) {
-    const candidate = new Date(Date.UTC(year, month, day, 0, minutes))
-    if (candidate.getTime() > now.getTime()) return candidate
+  // Walk at most a week plus today so a Mon–Fri table still finds Monday 01:00 from Friday evening.
+  for (let offset = 0; offset <= 7; offset += 1) {
+    for (const minutes of boundaries) {
+      const candidate = new Date(Date.UTC(year, month, day + offset, 0, minutes))
+      if (candidate.getTime() <= now.getTime()) continue
+      if (inPeak(candidate, windows, peakWeekdays) !== current) return candidate
+    }
   }
-  return new Date(Date.UTC(year, month, day + 1, 0, boundaries[0]!))
+  throw new TypeError('deep-tariff: could not find a future peak/off-peak transition')
 }
 
 function projectLocalWindows(

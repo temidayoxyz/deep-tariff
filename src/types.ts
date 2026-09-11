@@ -70,6 +70,11 @@ export interface TariffTable {
   readonly provider: string
   /** UTC peak windows; off-peak is every instant outside these half-open ranges. */
   readonly peakWindows: readonly ClockWindow[]
+  /**
+   * UTC weekdays when `peakWindows` apply (`Date.getUTCDay()`, 0=Sun … 6=Sat).
+   * Official table is Monday–Friday; Saturday and Sunday are off-peak.
+   */
+  readonly peakWeekdays: readonly number[]
   /** Per-model peak and off-peak USD rates. */
   readonly models: Readonly<Record<string, ModelRates>>
 }
@@ -100,6 +105,37 @@ export interface DeepTariffSpendProjection {
   /** USD priced at each sample's UTC window and model. */
   usd: number
 }
+
+/** Successful `GET /user/balance` readout. Amounts are in `currency`. */
+export interface DeepTariffBalance {
+  /** Discriminator: the request succeeded. */
+  readonly ok: true
+  /** Whether DeepSeek considers the balance sufficient for API calls. */
+  readonly isAvailable: boolean
+  /** API-reported currency (`USD` or `CNY`). */
+  readonly currency: string
+  /** Total remaining (granted + topped-up). */
+  readonly total: number
+  /** Unexpired granted credit. */
+  readonly granted: number
+  /** Topped-up remaining credit. */
+  readonly toppedUp: number
+  /** Host clock when this snapshot was fetched. */
+  readonly fetchedAt: number
+}
+
+/** Failed or unavailable balance readout. The chip omits the balance segment. */
+export interface DeepTariffBalanceError {
+  /** Discriminator: the request failed or no key is configured. */
+  readonly ok: false
+  /** Short reason for logs / tooltip; never an API key. */
+  readonly error: string
+  /** Host clock of the attempt. */
+  readonly fetchedAt: number
+}
+
+/** Host snapshot served at `/deep-tariff/snapshot`. */
+export type DeepTariffBalanceSnapshot = DeepTariffBalance | DeepTariffBalanceError
 
 /** One resolved DeepSeek billing snapshot. Absent routes yield `null` instead. */
 export interface TariffSnapshot {

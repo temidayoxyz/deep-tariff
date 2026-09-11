@@ -1,9 +1,9 @@
-# Overlay for DeepSeek Harness / XYZ-OS. Apply with:
+# Overlay for DeepSeek Harness. Apply with:
 #   dsh web --patch path/to/deep-tariff/examples/cordis.patch.yml
 # Or copy these rows into your profile's cordis.patch.yml.
 #
-# Skip the host row if your composition already mounts @deepseek-ai/dsh-deep-tariff.
-# Skip the client row if it already mounts @deepseek-ai/dsh-client-ui-deep-tariff.
+# Skip the host row if your composition already mounts a `deepTariff` service.
+# Skip the client row if it already mounts a `deep-tariff/client` chip.
 
 - insert:
     - id: deep-tariff

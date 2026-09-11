@@ -17,10 +17,26 @@ export interface TariffDirectoryStore {
   getSnapshot: () => TariffDirectoryState
 }
 
+/** Subscribe/getSnapshot face of this session's spend projection (or the live fallback). */
+export interface TariffSpendStore {
+  subscribe: (fn: () => void) => () => void
+  getSnapshot: () => import('../types.ts').DeepTariffSpendProjection | null
+}
+
+/** Subscribe/getSnapshot face of the host balance poller. */
+export interface TariffBalanceStore {
+  subscribe: (fn: () => void) => () => void
+  getSnapshot: () => import('../types.ts').DeepTariffBalanceSnapshot | null
+}
+
 /** Injected business face of the composer tariff readout. */
 export interface TariffDockInjected {
   /** The session's shared model-directory store. */
   directory: TariffDirectoryStore
   /** Refresh the directory (fire-and-forget; a failed load leaves `current` null). */
   load: () => void
+  /** Session spend priced at each sample's window; null store means the host did not wire it. */
+  spend: TariffSpendStore | null
+  /** Account remaining credit; null store means the snapshot route is not being polled. */
+  balance: TariffBalanceStore | null
 }
