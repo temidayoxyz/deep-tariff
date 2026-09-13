@@ -1,6 +1,6 @@
 {
   "name": "deep-tariff",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Free DeepSeek official-API peak/off-peak plugin for DeepSeek Harness: UTC schedule, session spend, account remaining, Flash/Pro USD rates",
   "license": "MIT",
   "type": "module",
@@ -47,7 +47,6 @@
   "dsh": {
     "client": {
       "inject": [
-        "@deepseek-ai/dsh-client-runtime",
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-ui-conversation",
         "@deepseek-ai/dsh-client-ui-model-selection"
@@ -63,7 +62,6 @@
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",
     "@deepseek-ai/dsh-client-locale": "*",
-    "@deepseek-ai/dsh-client-runtime": "*",
     "@deepseek-ai/dsh-client-ui-conversation": "*",
     "@deepseek-ai/dsh-client-ui-model-selection": "*",
     "@deepseek-ai/dsh-client-ui-primitives": "*",
@@ -73,9 +71,6 @@
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/dsh-client-locale": {
-      "optional": true
-    },
-    "@deepseek-ai/dsh-client-runtime": {
       "optional": true
     },
     "@deepseek-ai/dsh-client-ui-conversation": {
